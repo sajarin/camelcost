@@ -1,0 +1,34 @@
+{
+  "name": "camelcost",
+  "version": "1.0.0",
+  "description": "Production-accurate bundle size analyzer. Rollup + esbuild + Brotli.",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "camelcost": "src/cli.js"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "bun test"
+  },
+  "keywords": [
+    "bundle",
+    "size",
+    "analyzer",
+    "rollup",
+    "esbuild",
+    "brotli",
+    "tree-shaking"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@rollup/plugin-commonjs": "^28.0.0",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^16.0.0",
+    "@rollup/plugin-replace": "^6.0.3",
+    "esbuild": "^0.24.0",
+    "rollup": "^4.28.0"
+  }
+}
