@@ -77,7 +77,7 @@ function parsePackageSpec(packageSpec) {
 }
 
 export async function analyze(packageName, options = {}) {
-  const { maxExports = 50, tmpDir: customTmpDir } = options;
+  const { maxExports = 9999, tmpDir: customTmpDir, debug = false } = options;
   const tmpDir = customTmpDir || `/tmp/camelcost-${process.pid}-${Date.now()}`;
   const { name: pkgName, spec: pkgSpec } = parsePackageSpec(packageName);
 
@@ -103,9 +103,47 @@ export async function analyze(packageName, options = {}) {
     // Get exports
     const exports = await getExports(pkgName, tmpDir);
 
-    // Measure individual exports
-    const exportSizes = [];
-    const sample = exports.slice(0, maxExports);
+    // EARLY TREE-SHAKEABILITY CHECK
+    // Measure just ONE export first to determine if package is tree-shakeable
+    // This saves time by not computing all exports for non-tree-shakeable packages
+    if (exports.length === 0) {
+      // No named exports = not tree-shakeable
+      if (debug) console.error(`[${pkgName}] No named exports - not tree-shakeable`);
+      return {
+        package: pkgName,
+        version: pkgJson.version,
+        size: full.brotli,
+        raw: full.raw,
+        exports: 0,
+        exportSizes: [],
+        treeShakeable: false
+      };
+    }
+
+    // Test first export to check tree-shakeability
+    const firstExport = exports[0];
+    const firstResult = await measureExport(pkgName, firstExport, tmpDir);
+
+    if (firstResult.error || firstResult.brotli >= full.brotli * 0.5) {
+      // First export is >= 50% of full bundle = not tree-shakeable
+      // Skip measuring remaining exports
+      if (debug) console.error(`[${pkgName}] First export is ${Math.round(firstResult.brotli / full.brotli * 100)}% of full - not tree-shakeable`);
+      return {
+        package: pkgName,
+        version: pkgJson.version,
+        size: full.brotli,
+        raw: full.raw,
+        exports: exports.length,
+        exportSizes: [],
+        treeShakeable: false
+      };
+    }
+
+    // Package IS tree-shakeable - measure all exports
+    if (debug) console.error(`[${pkgName}] Tree-shakeable! Measuring ${Math.min(exports.length, maxExports)} exports...`);
+
+    const exportSizes = [{ name: firstExport, size: firstResult.brotli }];
+    const sample = exports.slice(1, maxExports); // Skip first, already measured
 
     for (const exp of sample) {
       const result = await measureExport(pkgName, exp, tmpDir);
@@ -123,7 +161,7 @@ export async function analyze(packageName, options = {}) {
       raw: full.raw,
       exports: exports.length,
       exportSizes,
-      treeShakeable: exportSizes.length > 0 && exportSizes[0].size < full.brotli * 0.1
+      treeShakeable: true
     };
   } finally {
     if (!customTmpDir && existsSync(tmpDir)) {
@@ -135,7 +173,13 @@ export async function analyze(packageName, options = {}) {
 async function getExports(packageName, tmpDir) {
   const script = `
     import * as pkg from '${packageName}';
-    console.log(JSON.stringify(Object.keys(pkg).filter(k => k !== 'default')));
+    const named = Object.keys(pkg).filter(k => k !== 'default');
+    // If no named exports but has default, include 'default'
+    if (named.length === 0 && 'default' in pkg) {
+      console.log(JSON.stringify(['default']));
+    } else {
+      console.log(JSON.stringify(named));
+    }
   `;
   writeFileSync(join(tmpDir, 'detect.mjs'), script);
 
@@ -215,7 +259,10 @@ async function measureFullPackage(packageName, tmpDir) {
 }
 
 async function measureExport(packageName, exportName, tmpDir) {
-  const entryCode = `import { ${exportName} } from '${packageName}';\nconsole.log(${exportName});`;
+  // Handle default export differently
+  const entryCode = exportName === 'default'
+    ? `import pkg from '${packageName}';\nconsole.log(pkg);`
+    : `import { ${exportName} } from '${packageName}';\nconsole.log(${exportName});`;
 
   try {
     const bundled = await bundleWithRollup(entryCode, tmpDir);
