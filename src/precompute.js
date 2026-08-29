@@ -197,25 +197,70 @@ const MODERN_PACKAGES = [
   '@testing-library/jest-dom', '@testing-library/user-event',
 ];
 
+// Large packages that need high memory to analyze (blocked in real-time but precomputable)
+const LARGE_PACKAGES = [
+  '@cloudscape-design/components',
+  '@aws-amplify/ui-react',
+  '@mui/material',
+  '@mui/icons-material',
+  '@chakra-ui/react',
+  'antd',
+  '@ant-design/icons',
+  'aws-sdk',
+  'firebase',
+  '@google-cloud/storage',
+  'three',
+  '@tensorflow/tfjs',
+  'pdf-lib',
+  'pdfjs-dist',
+  'monaco-editor',
+  '@angular/core',
+  '@angular/material',
+  // Additional popular large packages
+  '@emotion/react',
+  '@emotion/styled',
+  'semantic-ui-react',
+  'primereact',
+  '@blueprintjs/core',
+  'rsuite',
+  'evergreen-ui',
+  'grommet',
+  'baseui',
+  'react-icons',
+  'mantine',
+  '@mantine/core',
+  '@mantine/hooks',
+];
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Get all packages to analyze
-function getPackagesToAnalyze() {
+function getPackagesToAnalyze(includeLarge = false) {
   const packages = new Set(TOP_1000_PACKAGES);
   for (const pkg of MODERN_PACKAGES) {
     packages.add(pkg);
   }
+  if (includeLarge) {
+    for (const pkg of LARGE_PACKAGES) {
+      packages.add(pkg);
+    }
+  }
   return Array.from(packages);
+}
+
+// Get only large packages (for high-memory precompute runs)
+function getLargePackages() {
+  return [...LARGE_PACKAGES];
 }
 
 // Analyze with timeout and retries
 async function analyzeWithRetry(pkg, options, maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      // Create a timeout promise
-      const timeoutMs = 120000; // 2 minutes per package
+      // Create a timeout promise (longer for packages with many exports)
+      const timeoutMs = 300000; // 5 minutes per package
       const result = await Promise.race([
         analyze(pkg, options),
         new Promise((_, reject) =>
@@ -238,8 +283,10 @@ async function precompute(options = {}) {
   const {
     outputPath = 'precomputed.json',
     maxPackages = 1200,
-    maxExports = 50,
+    maxExports = 9999,  // Analyze ALL exports - no practical limit
     resume = true,
+    largeOnly = false,  // Only analyze large packages (needs high memory)
+    includeLarge = false,  // Include large packages in normal run
   } = options;
 
   log('='.repeat(60));
@@ -269,7 +316,9 @@ async function precompute(options = {}) {
   }
 
   // Get packages to analyze from static list
-  const allPackages = getPackagesToAnalyze().slice(0, maxPackages);
+  const allPackages = largeOnly
+    ? getLargePackages()
+    : getPackagesToAnalyze(includeLarge).slice(0, maxPackages);
   const toAnalyze = allPackages.filter(pkg => !results[pkg] && !failed[pkg]);
 
   log(`\nTotal packages in list: ${allPackages.length}`);
@@ -334,7 +383,14 @@ async function precompute(options = {}) {
 
 // CLI
 const args = process.argv.slice(2);
-const outputPath = args[0] || 'precomputed.json';
-const maxPackages = parseInt(args[1]) || 1200;
+const largeOnly = args.includes('--large');
+const includeLarge = args.includes('--include-large');
+const filteredArgs = args.filter(a => !a.startsWith('--'));
+const outputPath = filteredArgs[0] || 'precomputed.json';
+const maxPackages = parseInt(filteredArgs[1]) || 1200;
 
-precompute({ outputPath, maxPackages });
+if (largeOnly) {
+  log('MODE: Large packages only (needs high memory, e.g., 8GB+)');
+}
+
+precompute({ outputPath, maxPackages, largeOnly, includeLarge });

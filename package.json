@@ -1,6 +1,6 @@
 {
   "name": "camelcost",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Production-accurate bundle size analyzer. Rollup + esbuild + Brotli.",
   "type": "module",
   "main": "src/index.js",

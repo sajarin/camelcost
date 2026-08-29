@@ -1,3 +1,6 @@
 node_modules/
 *.log
 .DS_Store
+results/
+precomputed_new.json
+precomputed.failed.json
